@@ -1,6 +1,6 @@
 package org.example;
 
-import org.graalvm.polyglot.*;
+
 import org.graalvm.polyglot.io.FileSystem;
 
 import java.io.IOException;
@@ -9,7 +9,6 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.*;
 import java.nio.file.attribute.FileAttribute;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -27,7 +26,6 @@ class InMemoryFileSystem implements FileSystem {
 
     @Override
     public Path parsePath(String path) {
-        System.out.println("parsePath (String): " + path);
         if (path.startsWith("/")) {
             return Paths.get(path);
         } else {
@@ -37,7 +35,6 @@ class InMemoryFileSystem implements FileSystem {
 
     @Override
     public void checkAccess(Path path, Set<? extends AccessMode> modes, LinkOption... linkOptions) throws IOException {
-        System.out.println("checkAccess: " + path);
         if (!fileSystemMap.containsKey(path.toString())) {
             throw new NoSuchFileException(path.toString());
         }
@@ -55,15 +52,10 @@ class InMemoryFileSystem implements FileSystem {
 
     @Override
     public SeekableByteChannel newByteChannel(Path path, Set<? extends OpenOption> options, FileAttribute<?>... attrs) throws IOException {
-        System.out.println("newByteChannel: " + path);
-        System.out.println("fileSystemMap keys:" + fileSystemMap.keySet());
         String filePath = path.toString();
-        System.out.println("newByteChannel - looking for path: " + filePath);
         if (fileSystemMap.containsKey(filePath)) {
-            System.out.println("newByteChannel - found file at path: " + filePath);
             return new InMemoryByteChannel(fileSystemMap.get(filePath));
         }
-        System.out.println("newByteChannel - did NOT find file at path: " + filePath);
         throw new NoSuchFileException(filePath);
     }
 
@@ -80,7 +72,6 @@ class InMemoryFileSystem implements FileSystem {
 
     @Override
     public Path toRealPath(Path path, LinkOption... linkOptions) throws IOException {
-        System.out.println("toRealPath: " + path);
         if (fileSystemMap.containsKey(path.toString())) {
             return path;
         } else {
