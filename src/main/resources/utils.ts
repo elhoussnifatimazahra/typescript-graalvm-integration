@@ -1,3 +1,3 @@
-export function greet(name: string): string {
-  return `Hello, ${name}!`;
+export default function helloWorld() {
+  console.log("Hello, Fatima zahra");
 }
