@@ -1,6 +1,8 @@
 package org.example;
 
-
+import org.graalvm.polyglot.Context;
+import org.graalvm.polyglot.Source;
+import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.io.FileSystem;
 
 import java.io.IOException;
@@ -9,14 +11,34 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.*;
 import java.nio.file.attribute.FileAttribute;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
 class InMemoryFileSystem implements FileSystem {
     private final Map<String, byte[]> fileSystemMap;
+    private Context context; // Store the context
 
     public InMemoryFileSystem(Map<String, byte[]> fileSystemMap) {
         this.fileSystemMap = fileSystemMap;
+    }
+
+    // Separate method to initialize the TypeScript compiler after the context is built
+    public void initializeTypeScriptCompiler(Context context) {
+        this.context = context;
+        try {
+            String typescriptCode = new String(Files.readAllBytes(Paths.get("src/main/resources/typescript.js")));
+            context.eval("js", typescriptCode);
+        } catch (IOException e) {
+            throw new RuntimeException("Error loading TypeScript compiler", e);
+        }
+    }
+
+    private String transpileTypeScript(String tsCode) {
+        Value tsCompiler = context.getBindings("js").getMember("ts");
+        Value options = context.eval("js", "({ compilerOptions: { module: 'ES2020' } })");
+        Value result = tsCompiler.getMember("transpileModule").execute(tsCode, options);
+        return result.getMember("outputText").asString();
     }
 
     @Override
@@ -35,8 +57,24 @@ class InMemoryFileSystem implements FileSystem {
 
     @Override
     public void checkAccess(Path path, Set<? extends AccessMode> modes, LinkOption... linkOptions) throws IOException {
-        if (!fileSystemMap.containsKey(path.toString())) {
-            throw new NoSuchFileException(path.toString());
+        String filePath = path.toString();
+        if (!fileSystemMap.containsKey(filePath)) {
+            // Construct the path to the corresponding .ts file in the resources directory
+            Path resourcesPath = Paths.get("src", "main", "resources");
+            String tsFileName = filePath.substring(1).replace(".js", ".ts"); // Remove leading '/'
+            Path tsPath = resourcesPath.resolve(tsFileName);
+
+            if (Files.exists(tsPath)) {
+                try {
+                    String tsContent = new String(Files.readAllBytes(tsPath));
+                    String jsContent = transpileTypeScript(tsContent);
+                    fileSystemMap.put(filePath, jsContent.getBytes());
+                } catch (IOException e) {
+                    throw new IOException("Error reading or transpiling TypeScript file: " + tsPath, e);
+                }
+            } else {
+                throw new NoSuchFileException(filePath);
+            }
         }
     }
 
@@ -53,12 +91,13 @@ class InMemoryFileSystem implements FileSystem {
     @Override
     public SeekableByteChannel newByteChannel(Path path, Set<? extends OpenOption> options, FileAttribute<?>... attrs) throws IOException {
         String filePath = path.toString();
+        // checkAccess will ensure the file exists (either originally or after transpilation)
+        checkAccess(path, Set.of(AccessMode.READ));
         if (fileSystemMap.containsKey(filePath)) {
             return new InMemoryByteChannel(fileSystemMap.get(filePath));
         }
         throw new NoSuchFileException(filePath);
     }
-
 
     @Override
     public DirectoryStream<Path> newDirectoryStream(Path dir, DirectoryStream.Filter<? super Path> filter) throws IOException {
@@ -72,7 +111,8 @@ class InMemoryFileSystem implements FileSystem {
 
     @Override
     public Path toRealPath(Path path, LinkOption... linkOptions) throws IOException {
-        if (fileSystemMap.containsKey(path.toString())) {
+        String filePath = path.toString();
+        if (fileSystemMap.containsKey(filePath) || Files.exists(Paths.get(filePath.replace(".js", ".ts")))) {
             return path;
         } else {
             return null;
