@@ -2,8 +2,6 @@ package org.example;
 
 
 import org.graalvm.polyglot.*;
-import org.graalvm.polyglot.io.FileSystem;
-
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.HashMap;
@@ -46,6 +44,9 @@ public class TypeScriptCompiler {
         if (mainJsBytes == null) {
             throw new IllegalStateException("/main.js was not found in the file system after initial access check.");
         }
+//        System.out.println("Content of mainJs :");
+//        System.out.println(new String(fileSystemMap.get("/main.js")));
+
         Source esmSource = Source.newBuilder("js", new String(mainJsBytes), "/main.js")
                 .mimeType("application/javascript+module")
                 .build();

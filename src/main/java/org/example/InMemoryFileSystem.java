@@ -18,6 +18,8 @@ import java.util.Set;
 class InMemoryFileSystem implements FileSystem {
     private final Map<String, byte[]> fileSystemMap;
     private Context context; // Store the context
+    private Value tsCompiler;
+    private Value options;
 
     public InMemoryFileSystem(Map<String, byte[]> fileSystemMap) {
         this.fileSystemMap = fileSystemMap;
@@ -29,15 +31,16 @@ class InMemoryFileSystem implements FileSystem {
         try {
             String typescriptCode = new String(Files.readAllBytes(Paths.get("src/main/resources/typescript.js")));
             context.eval("js", typescriptCode);
+            Value bindings = context.getBindings("js");
+            tsCompiler = bindings.getMember("ts");
+            options = context.eval("js", "({ compilerOptions: { module: 'ES2020' } })");
         } catch (IOException e) {
             throw new RuntimeException("Error loading TypeScript compiler", e);
         }
     }
 
     private String transpileTypeScript(String tsCode) {
-        Value tsCompiler = context.getBindings("js").getMember("ts");
-        Value options = context.eval("js", "({ compilerOptions: { module: 'ES2020' } })");
-        Value result = tsCompiler.getMember("transpileModule").execute(tsCode, options);
+        Value result = tsCompiler.invokeMember("transpileModule", tsCode, options);
         return result.getMember("outputText").asString();
     }
 
@@ -59,22 +62,24 @@ class InMemoryFileSystem implements FileSystem {
     public void checkAccess(Path path, Set<? extends AccessMode> modes, LinkOption... linkOptions) throws IOException {
         String filePath = path.toString();
         if (!fileSystemMap.containsKey(filePath)) {
-            // Construct the path to the corresponding .ts file in the resources directory
-            Path resourcesPath = Paths.get("src", "main", "resources");
-            String tsFileName = filePath.substring(1).replace(".js", ".ts"); // Remove leading '/'
-            Path tsPath = resourcesPath.resolve(tsFileName);
+            if (filePath.endsWith(".js")) {
+                // Construct the path to the corresponding .ts file in the resources directory
+                Path resourcesPath = Paths.get("src", "main", "resources");
+                String tsFileName = filePath.substring(1).replace(".js", ".ts"); // Remove leading '/'
+                Path tsPath = resourcesPath.resolve(tsFileName);
 
-            if (Files.exists(tsPath)) {
-                try {
-                    String tsContent = new String(Files.readAllBytes(tsPath));
-                    String jsContent = transpileTypeScript(tsContent);
-                    fileSystemMap.put(filePath, jsContent.getBytes());
-                } catch (IOException e) {
-                    throw new IOException("Error reading or transpiling TypeScript file: " + tsPath, e);
+                if (Files.exists(tsPath)) {
+                    try {
+                        String tsContent = Files.readString(tsPath);
+                        String jsContent = transpileTypeScript(tsContent);
+                        fileSystemMap.put(filePath, jsContent.getBytes());
+                        return; // proceed
+                    } catch (IOException e) {
+                        throw new IOException("Error reading or transpiling TypeScript file: " + tsPath, e);
+                    }
                 }
-            } else {
-                throw new NoSuchFileException(filePath);
             }
+            throw new NoSuchFileException(filePath);
         }
     }
 
