@@ -1,7 +1,6 @@
 package org.example;
 
 import org.graalvm.polyglot.Context;
-import org.graalvm.polyglot.Source;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.io.FileSystem;
 
@@ -11,7 +10,6 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.*;
 import java.nio.file.attribute.FileAttribute;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -20,6 +18,7 @@ class InMemoryFileSystem implements FileSystem {
     private Context context; // Store the context
     private Value tsCompiler;
     private Value options;
+    private TypeScriptTranspiler transpiler;
 
     public InMemoryFileSystem(Map<String, byte[]> fileSystemMap) {
         this.fileSystemMap = fileSystemMap;
@@ -27,21 +26,7 @@ class InMemoryFileSystem implements FileSystem {
 
     // Separate method to initialize the TypeScript compiler after the context is built
     public void initializeTypeScriptCompiler(Context context) {
-        this.context = context;
-        try {
-            String typescriptCode = new String(Files.readAllBytes(Paths.get("src/main/resources/typescript.js")));
-            context.eval("js", typescriptCode);
-            Value bindings = context.getBindings("js");
-            tsCompiler = bindings.getMember("ts");
-            options = context.eval("js", "({ compilerOptions: { module: 'ES2020' } })");
-        } catch (IOException e) {
-            throw new RuntimeException("Error loading TypeScript compiler", e);
-        }
-    }
-
-    private String transpileTypeScript(String tsCode) {
-        Value result = tsCompiler.invokeMember("transpileModule", tsCode, options);
-        return result.getMember("outputText").asString();
+        this.transpiler = new TypeScriptTranspiler(context);
     }
 
     @Override
@@ -61,27 +46,32 @@ class InMemoryFileSystem implements FileSystem {
     @Override
     public void checkAccess(Path path, Set<? extends AccessMode> modes, LinkOption... linkOptions) throws IOException {
         String filePath = path.toString();
-        if (!fileSystemMap.containsKey(filePath)) {
-            if (filePath.endsWith(".js")) {
-                // Construct the path to the corresponding .ts file in the resources directory
-                Path resourcesPath = Paths.get("src", "main", "resources");
-                String tsFileName = filePath.substring(1).replace(".js", ".ts"); // Remove leading '/'
-                Path tsPath = resourcesPath.resolve(tsFileName);
 
-                if (Files.exists(tsPath)) {
-                    try {
-                        String tsContent = Files.readString(tsPath);
-                        String jsContent = transpileTypeScript(tsContent);
-                        fileSystemMap.put(filePath, jsContent.getBytes());
-                        return; // proceed
-                    } catch (IOException e) {
-                        throw new IOException("Error reading or transpiling TypeScript file: " + tsPath, e);
-                    }
+        if (!fileSystemMap.containsKey(filePath)) {
+            Path resourcesPath = Paths.get("src", "main", "resources");
+
+            if (filePath.endsWith(".js")) {
+                String fileName = filePath.startsWith("/") ? filePath.substring(1) : filePath;
+
+                Path jsPath = resourcesPath.resolve(fileName);
+                Path tsPath = resourcesPath.resolve(fileName.replace(".js", ".ts"));
+
+                if (Files.exists(jsPath)) {
+                    byte[] jsContent = Files.readAllBytes(jsPath);
+                    fileSystemMap.put(filePath, jsContent);
+                    return;
+                } else if (Files.exists(tsPath)) {
+                    String tsContent = Files.readString(tsPath);
+                    String transpiled = transpiler.transpile(tsContent); // <== uses new helper
+                    fileSystemMap.put(filePath, transpiled.getBytes());
+                    return;
                 }
             }
-            throw new NoSuchFileException(filePath);
+
+            throw new NoSuchFileException("No .js or .ts file found for: " + filePath);
         }
     }
+
 
     @Override
     public void createDirectory(Path dir, FileAttribute<?>... attrs) throws IOException {

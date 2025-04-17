@@ -8,6 +8,7 @@ export class Calculator {
   constructor(private initialValue: number = 0) {}
 
   add(value: number): number {
+
     this.initialValue += value;
     return this.initialValue;
   }
