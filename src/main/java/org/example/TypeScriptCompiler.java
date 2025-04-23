@@ -10,7 +10,9 @@ import java.util.Set;
 public class TypeScriptCompiler {
 
     public static void main(String[] args) throws Exception {
-        String compilerChoice = "swc"; // "tsc" or "swc"
+        String compilerChoice = "tsc"; // "tsc" or "swc"
+        int warmupIterations = 5;
+        int benchmarkIterations = 10;
 
         Map<String, byte[]> fileSystemMap = new HashMap<>();
         InMemoryFileSystem memoryFileSystem = new InMemoryFileSystem(fileSystemMap);
@@ -37,20 +39,41 @@ public class TypeScriptCompiler {
         String mainTsContent = Files.readString(Paths.get("src/main/resources/main.ts"));
         fileSystemMap.put("/main.ts", mainTsContent.getBytes());
 
-        long startTime = System.nanoTime();
-        try {
-            memoryFileSystem.checkAccess(Paths.get("/main.js"), Set.of(java.nio.file.AccessMode.READ));
-        } catch (IOException e) {
-            System.err.println("Error during initial access check: " + e.getMessage());
-            throw e;
+        System.out.printf("Warming up transpilation (%d iterations)...\n", warmupIterations);
+        for (int i = 0; i < warmupIterations; i++) {
+            try {
+                memoryFileSystem.checkAccess(Paths.get("/main.js"), Set.of(java.nio.file.AccessMode.READ));
+            } catch (IOException e) {
+                System.err.println("Error during warmup iteration " + (i + 1) + ": " + e.getMessage());
+                throw e;
+            }
         }
-        long endTime = System.nanoTime();
-        System.out.printf("Total Transpilation Time (%s): %.3f ms%n",
-                compilerChoice.toUpperCase(), (endTime - startTime) / 1_000_000.0);
+        System.out.println("Warmup complete.\n");
+
+        System.out.printf("Benchmarking transpilation (%d iterations)...\n", benchmarkIterations);
+        long totalTranspilationTime = 0;
+        for (int i = 0; i < benchmarkIterations; i++) {
+            long startTime = System.nanoTime();
+            try {
+                // We need to trigger the transpilation again in each iteration
+                // One way to do this is to clear the /main.js entry from the map
+                fileSystemMap.remove("/main.js");
+                memoryFileSystem.checkAccess(Paths.get("/main.js"), Set.of(java.nio.file.AccessMode.READ));
+            } catch (IOException e) {
+                System.err.println("Error during benchmark iteration " + (i + 1) + ": " + e.getMessage());
+                throw e;
+            }
+            long endTime = System.nanoTime();
+            totalTranspilationTime += (endTime - startTime);
+        }
+
+        double averageTranspilationTime = (double) totalTranspilationTime / benchmarkIterations / 1_000_000.0;
+        System.out.printf("Average Warmed-up Transpilation Time (%s, %d iterations): %.3f ms%n",
+                compilerChoice.toUpperCase(), benchmarkIterations, averageTranspilationTime);
 
         byte[] mainJsBytes = fileSystemMap.get("/main.js");
         if (mainJsBytes == null) {
-            throw new IllegalStateException("/main.js was not found after transpilation.");
+            throw new IllegalStateException("/main.js was not found after benchmarking.");
         }
 
         Source esmSource = Source.newBuilder("js", new String(mainJsBytes), "/main.js")
