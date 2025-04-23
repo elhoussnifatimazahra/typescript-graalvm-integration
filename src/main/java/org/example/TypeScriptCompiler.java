@@ -1,6 +1,5 @@
 package org.example;
 
-
 import org.graalvm.polyglot.*;
 import java.io.IOException;
 import java.nio.file.*;
@@ -11,50 +10,54 @@ import java.util.Set;
 public class TypeScriptCompiler {
 
     public static void main(String[] args) throws Exception {
-        // Create a map to hold the in-memory file system data (initially empty).
-        Map<String, byte[]> fileSystemMap = new HashMap<>();
+        String compilerChoice = "swc"; // "tsc" or "swc"
 
-        // Create an instance of the custom in-memory file system.
+        Map<String, byte[]> fileSystemMap = new HashMap<>();
         InMemoryFileSystem memoryFileSystem = new InMemoryFileSystem(fileSystemMap);
 
-        // Build a GraalVM context that allows IO and uses the custom file system.
-        Context context = Context.newBuilder("js")
+        Context context = Context.newBuilder("js","wasm")
                 .allowIO(true)
                 .allowAllAccess(true)
-                .fileSystem(memoryFileSystem) // Provide the FileSystem during context creation
+                .fileSystem(memoryFileSystem)
+                .option("js.webassembly", "true")
+                .option("js.esm-eval-returns-exports", "true")
+                .option("js.text-encoding", "true")
                 .build();
 
-        // Now that the context is built, we can initialize the TypeScript compiler
-        // within the InMemoryFileSystem, which now has access to the context.
-        memoryFileSystem.initializeTypeScriptCompiler(context);
+        memoryFileSystem.initializeCompilers(context);
 
-        // We don't need to manually put main.ts into fileSystemMap anymore.
+        if (compilerChoice.equalsIgnoreCase("swc")) {
+            memoryFileSystem.setUseSwc(true);
+        } else if (compilerChoice.equalsIgnoreCase("tsc")) {
+            memoryFileSystem.setUseSwc(false);
+        } else {
+            System.err.println("Invalid compiler choice. Using default (TypeScript).");
+        }
 
-        // Before creating the Source, try to 'access' /main.js through the FileSystem.
-        // This might trigger the checkAccess and transpilation.
+        String mainTsContent = Files.readString(Paths.get("src/main/resources/main.ts"));
+        fileSystemMap.put("/main.ts", mainTsContent.getBytes());
+
+        long startTime = System.nanoTime();
         try {
             memoryFileSystem.checkAccess(Paths.get("/main.js"), Set.of(java.nio.file.AccessMode.READ));
         } catch (IOException e) {
             System.err.println("Error during initial access check: " + e.getMessage());
             throw e;
         }
+        long endTime = System.nanoTime();
+        System.out.printf("Total Transpilation Time (%s): %.3f ms%n",
+                compilerChoice.toUpperCase(), (endTime - startTime) / 1_000_000.0);
 
-        // Now create the GraalVM Source object to evaluate the transpiled main.js.
         byte[] mainJsBytes = fileSystemMap.get("/main.js");
         if (mainJsBytes == null) {
-            throw new IllegalStateException("/main.js was not found in the file system after initial access check.");
+            throw new IllegalStateException("/main.js was not found after transpilation.");
         }
-//        System.out.println("Content of mainJs :");
-//        System.out.println(new String(fileSystemMap.get("/main.js")));
 
         Source esmSource = Source.newBuilder("js", new String(mainJsBytes), "/main.js")
                 .mimeType("application/javascript+module")
                 .build();
 
-        // Evaluate the ESM source in the GraalVM context.
         context.eval(esmSource);
-
-        // Close the GraalVM context.
         context.close();
     }
 }

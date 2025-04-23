@@ -1,7 +1,6 @@
 package org.example;
 
 import org.graalvm.polyglot.Context;
-import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.io.FileSystem;
 
 import java.io.IOException;
@@ -15,18 +14,28 @@ import java.util.Set;
 
 class InMemoryFileSystem implements FileSystem {
     private final Map<String, byte[]> fileSystemMap;
-    private Context context; // Store the context
-    private Value tsCompiler;
-    private Value options;
-    private TypeScriptTranspiler transpiler;
+    private Context context;
+    private TypeScriptTranspiler typeScriptTranspiler;
+    private SwcWasmTranspiler swcWasmTranspiler; // Use the WASM version
+    private boolean useSwc = false;
 
     public InMemoryFileSystem(Map<String, byte[]> fileSystemMap) {
         this.fileSystemMap = fileSystemMap;
     }
 
-    // Separate method to initialize the TypeScript compiler after the context is built
-    public void initializeTypeScriptCompiler(Context context) {
-        this.transpiler = new TypeScriptTranspiler(context);
+    public void setUseSwc(boolean useSwc) {
+        this.useSwc = useSwc;
+    }
+
+    public void initializeCompilers(Context context) {
+        this.context = context;
+        this.typeScriptTranspiler = new TypeScriptTranspiler(context);
+        try {
+            this.swcWasmTranspiler = new SwcWasmTranspiler(context); // Initialize the WASM transpiler
+        } catch (RuntimeException e) {
+            System.err.println("Warning: Failed to initialize @swc/wasm-web. Using TypeScript compiler. Error: " + e.getMessage());
+            this.useSwc = false;
+        }
     }
 
     @Override
@@ -39,7 +48,7 @@ class InMemoryFileSystem implements FileSystem {
         if (path.startsWith("/")) {
             return Paths.get(path);
         } else {
-            return Paths.get("/" + path); // Ensure absolute path
+            return Paths.get("/" + path);
         }
     }
 
@@ -62,7 +71,15 @@ class InMemoryFileSystem implements FileSystem {
                     return;
                 } else if (Files.exists(tsPath)) {
                     String tsContent = Files.readString(tsPath);
-                    String transpiled = transpiler.transpile(tsContent); // <== uses new helper
+                    String transpiled;
+                    long startTime = System.nanoTime();
+                    if (useSwc && swcWasmTranspiler != null) { // Use the WASM transpiler
+                        transpiled = swcWasmTranspiler.transpile(tsContent);
+                        System.out.printf("SWC (WASM) Transpilation Time for %s: %.3f ms%n", fileName, (System.nanoTime() - startTime) / 1_000_000.0);
+                    } else {
+                        transpiled = typeScriptTranspiler.transpile(tsContent);
+                        System.out.printf("TSC Transpilation Time for %s: %.3f ms%n", fileName, (System.nanoTime() - startTime) / 1_000_000.0);
+                    }
                     fileSystemMap.put(filePath, transpiled.getBytes());
                     return;
                 }
