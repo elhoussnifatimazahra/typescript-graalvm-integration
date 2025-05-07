@@ -1,7 +1,6 @@
 package org.example;
 
 import org.graalvm.polyglot.Context;
-import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.io.FileSystem;
 
 import java.io.IOException;
@@ -10,23 +9,40 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.*;
 import java.nio.file.attribute.FileAttribute;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
 class InMemoryFileSystem implements FileSystem {
     private final Map<String, byte[]> fileSystemMap;
-    private Context context; // Store the context
-    private Value tsCompiler;
-    private Value options;
-    private TypeScriptTranspiler transpiler;
+    private final Set<String> generatedJsFiles = new HashSet<>();
+    private Context context;
+    private TypeScriptTranspiler typeScriptTranspiler;
+    private SwcWasmTranspiler swcWasmTranspiler; // Use the WASM version
+    private boolean useSwc = false;
 
     public InMemoryFileSystem(Map<String, byte[]> fileSystemMap) {
         this.fileSystemMap = fileSystemMap;
     }
 
-    // Separate method to initialize the TypeScript compiler after the context is built
-    public void initializeTypeScriptCompiler(Context context) {
-        this.transpiler = new TypeScriptTranspiler(context);
+    public void setUseSwc(boolean useSwc) {
+        this.useSwc = useSwc;
+    }
+
+    public void initializeCompilers(Context context) {
+        this.context = context;
+        this.typeScriptTranspiler = new TypeScriptTranspiler(context);
+        try {
+            this.swcWasmTranspiler = new SwcWasmTranspiler(context); // Initialize the WASM transpiler
+        } catch (RuntimeException e) {
+            System.err.println("Warning: Failed to initialize @swc/wasm-web. Using TypeScript compiler. Error: " + e.getMessage());
+            this.useSwc = false;
+        }
+    }
+
+    public void clearGeneratedJsFiles() {
+        generatedJsFiles.forEach(fileSystemMap::remove);
+        generatedJsFiles.clear();
     }
 
     @Override
@@ -39,7 +55,7 @@ class InMemoryFileSystem implements FileSystem {
         if (path.startsWith("/")) {
             return Paths.get(path);
         } else {
-            return Paths.get("/" + path); // Ensure absolute path
+            return Paths.get("/" + path);
         }
     }
 
@@ -48,22 +64,21 @@ class InMemoryFileSystem implements FileSystem {
         String filePath = path.toString();
 
         if (!fileSystemMap.containsKey(filePath)) {
-            Path resourcesPath = Paths.get("src", "main", "resources");
+//            Path resourcesPath = Paths.get("src", "main", "resources");
 
             if (filePath.endsWith(".js")) {
-                String fileName = filePath.startsWith("/") ? filePath.substring(1) : filePath;
-
-                Path jsPath = resourcesPath.resolve(fileName);
-                Path tsPath = resourcesPath.resolve(fileName.replace(".js", ".ts"));
-
-                if (Files.exists(jsPath)) {
-                    byte[] jsContent = Files.readAllBytes(jsPath);
-                    fileSystemMap.put(filePath, jsContent);
-                    return;
-                } else if (Files.exists(tsPath)) {
-                    String tsContent = Files.readString(tsPath);
-                    String transpiled = transpiler.transpile(tsContent); // <== uses new helper
+                String tsFilePath = filePath.replace(".js", ".ts");
+                if (fileSystemMap.containsKey(tsFilePath)) {
+                    String tsContent = new String(fileSystemMap.get(tsFilePath));
+                    String transpiled;
+//                    long startTime = System.nanoTime();
+                    if (useSwc && swcWasmTranspiler != null) { // Use the WASM transpiler
+                        transpiled = swcWasmTranspiler.transpile(tsContent);
+                    } else {
+                        transpiled = typeScriptTranspiler.transpile(tsContent);
+                    }
                     fileSystemMap.put(filePath, transpiled.getBytes());
+                    generatedJsFiles.add(filePath);
                     return;
                 }
             }

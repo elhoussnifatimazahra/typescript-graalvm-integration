@@ -12,7 +12,7 @@ public class TypeScriptTranspiler {
         try {
             String typescriptCode = new String(
                     java.nio.file.Files.readAllBytes(
-                            java.nio.file.Paths.get("src/main/resources/typescript.js")
+                            java.nio.file.Paths.get("src/main/resources/compilers/typescript.js")
                     )
             );
             context.eval("js", typescriptCode);
