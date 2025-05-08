@@ -21,8 +21,8 @@ The goal of this project is to enable seamless execution of **TypeScript code** 
 
 2. **Transpilation**  
    The `.ts` files are transpiled to `.js` using:
-   - [`tsc`](https://www.typescriptlang.org/) – the TypeScript compiler
-   - [`swc`](https://swc.rs/) – a fast Rust-based transpiler
+   - [`tsc`]([https://www.typescriptlang.org/](https://www.typescriptlang.org/docs/handbook/compiler-options.html)) – the TypeScript compiler
+   - [`swc`]([https://swc.rs/](https://www.npmjs.com/package/@swc/wasm-web)) – a fast Rust-based transpiler
 
 3. **Execution with GraalJS**  
    The compiled JavaScript code is executed inside a **GraalJS** context.
