@@ -28,7 +28,6 @@ The goal of this project is to enable seamless execution of **TypeScript code** 
    The compiled JavaScript code is executed inside a **GraalJS** context.
 
 4. **Custom Polyglot File System**  
-   Since GraalJS lacks native `fs` support:
    - A custom virtual file system intercepts missing `.js` file requests.
    - If a matching `.ts` file exists, it is **compiled on-the-fly**.
    - The resulting `.js` is served to GraalJS as if it existed.
