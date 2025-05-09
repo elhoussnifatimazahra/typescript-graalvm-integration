@@ -59,6 +59,5 @@ The project includes a benchmark suite that measures:
 
 * GraalVM must be installed and configured with `js` support.
 * Make sure to allow polyglot and host access in the GraalJS context.
-* This is **not a full Node.js emulation**, but a minimal system for TypeScript experimentation.
 
 ---
