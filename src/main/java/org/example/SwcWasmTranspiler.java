@@ -13,14 +13,12 @@ public class SwcWasmTranspiler {
     private Value initSyncFunc;
     private Value transformSyncFunc;
 
-
     public SwcWasmTranspiler(Context context) {
         this.context = context;
-        try {
 
-            String swcWasmCode = new String(
-                    Files.readAllBytes(Paths.get("src/main/resources/compilers/wasm.js"))
-            );
+        try {
+            // Load and evaluate the wasm.js module file
+            String swcWasmCode = new String(Files.readAllBytes(Paths.get("src/main/resources/node_modules/@swc/wasm-web/wasm.js")));
 
             Source swcSource = Source.newBuilder("js", swcWasmCode, "wasm.js")
                     .mimeType("application/javascript+module")
@@ -28,49 +26,53 @@ public class SwcWasmTranspiler {
 
             Value swcModule = context.eval(swcSource);
 
-            if (swcModule != null && swcModule.hasMembers()) {
-                this.initSyncFunc = swcModule.getMember("initSync");
-                this.transformSyncFunc = swcModule.getMember("transformSync");
-            } else {
-                System.err.println("Warning: Evaluated SWC module is null or has no members.");
+            if (swcModule == null || !swcModule.hasMembers()) {
+                throw new RuntimeException("SWC module is null or has no members.");
             }
+
+            this.initSyncFunc = swcModule.getMember("initSync");
+            this.transformSyncFunc = swcModule.getMember("transformSync");
+
+            if (initSyncFunc == null || initSyncFunc.isNull()) {
+                throw new RuntimeException("SWC initSync function is missing or null.");
+            }
+
+            if (transformSyncFunc == null || transformSyncFunc.isNull()) {
+                throw new RuntimeException("SWC transformSync function is missing or null.");
+            }
+
             // Load the WASM binary as a byte array
-            byte[] wasmBytes = Files.readAllBytes(Paths.get("src/main/resources/compilers/wasm_bg.wasm"));
+            byte[] wasmBytes = Files.readAllBytes(Paths.get("src/main/resources/node_modules/@swc/wasm-web/wasm_bg.wasm"));
             context.getBindings("js").putMember("wasmBytes", wasmBytes);
-            // Instantiate the WebAssembly.Module using the global variable
+
+            // Instantiate WebAssembly.Module
             Value initOptions = context.eval("js", "" +
                     "const wasmModuleObj = new WebAssembly.Module(new Uint8Array(wasmBytes));\n" +
                     "({ module: wasmModuleObj })"
             );
-            // Initialize SWC by calling initSync with the WASM module as a property of an object
-            if (this.initSyncFunc != null) {
-                this.initSyncFunc.execute(initOptions);
-            } else {
-                System.err.println("Warning: initSync function is null, cannot initialize SWC.");
-            }
 
-            if (this.initSyncFunc == null || this.initSyncFunc.isNull() || this.transformSyncFunc == null || this.transformSyncFunc.isNull()) {
-                throw new RuntimeException("Failed to initialize @swc/wasm-web: initSync or transformSync function missing from module exports");
-            }
+            // Initialize SWC with the wasm module
+            initSyncFunc.execute(initOptions);
+
         } catch (IOException e) {
             throw new RuntimeException("Error reading SWC WASM files", e);
         } catch (Exception e) {
-            System.err.println("Error during SWC WASM initialization: " + e.getMessage());
-            e.printStackTrace();
             throw new RuntimeException("Failed to initialize @swc/wasm-web", e);
         }
     }
 
     public String transpile(String tsCode) {
-        if (this.transformSyncFunc == null) {
-            throw new RuntimeException("transformSync function is not initialized.");
+        if (transformSyncFunc == null || transformSyncFunc.isNull()) {
+            throw new IllegalStateException("SWC transformSync function is not initialized.");
         }
+
         Value options = context.eval("js", "({ module: { type: 'es6' }, jsc: { parser: { syntax: 'typescript' } } })");
-        Value result = this.transformSyncFunc.execute(tsCode, options, context.asValue((Object) null));
+        Value result = transformSyncFunc.execute(tsCode, options, context.asValue((Object) null));
+
         if (result.hasMember("code")) {
             return result.getMember("code").asString();
         } else {
-            throw new RuntimeException("SWC WASM transpilation failed: " + result);
+            throw new RuntimeException("SWC WASM transpilation failed. Result: " + result.toString());
         }
     }
 }
