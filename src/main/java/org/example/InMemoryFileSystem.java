@@ -1,4 +1,3 @@
-// InMemoryFileSystem.java
 package org.example;
 
 import org.graalvm.polyglot.Context;
@@ -11,11 +10,12 @@ import java.nio.channels.SeekableByteChannel;
 import java.nio.file.*;
 import java.nio.file.attribute.FileAttribute;
 import java.util.*;
+import java.util.stream.Stream;
+
 
 class InMemoryFileSystem implements FileSystem {
     private final Map<String, byte[]> fileSystemMap;
     private final Set<String> generatedJsFiles = new HashSet<>();
-    private Context context;
     private TypeScriptTranspiler typeScriptTranspiler;
     private SwcWasmTranspiler swcWasmTranspiler;
     private boolean useSwc = false;
@@ -29,7 +29,6 @@ class InMemoryFileSystem implements FileSystem {
     }
 
     public void initializeCompilers(Context context) {
-        this.context = context;
         this.typeScriptTranspiler = new TypeScriptTranspiler(context);
         try {
             this.swcWasmTranspiler = new SwcWasmTranspiler(context);
@@ -40,17 +39,18 @@ class InMemoryFileSystem implements FileSystem {
     }
 
     public void loadProject(Path sourcePath) throws IOException {
-        Files.walk(sourcePath)
-                .filter(path -> path.toString().endsWith(".ts"))
-                .forEach(path -> {
-                    try {
-                        String relativePath = "/" + sourcePath.relativize(path).toString().replace("\\", "/");
-                        String content = Files.readString(path);
-                        fileSystemMap.put(relativePath, content.getBytes());
-                    } catch (IOException e) {
-                        System.err.println("Error reading TypeScript file: " + path + " - " + e.getMessage());
-                    }
-                });
+        try (Stream<Path> paths = Files.walk(sourcePath)) {
+                paths.filter(path -> path.toString().endsWith(".ts"))
+                    .forEach(path -> {
+                        try {
+                            String relativePath = "/" + sourcePath.relativize(path).toString().replace("\\", "/");
+                            String content = Files.readString(path);
+                            fileSystemMap.put(relativePath, content.getBytes());
+                        } catch (IOException e) {
+                            System.err.println("Error reading TypeScript file: " + path + " - " + e.getMessage());
+                        }
+                    });
+        }
     }
 
     public void transpile(String entryPoint) {

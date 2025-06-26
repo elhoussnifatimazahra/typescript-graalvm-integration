@@ -17,10 +17,8 @@ public class SwcWasmTranspiler {
         this.context = context;
 
         try {
-            // Load and evaluate the wasm.js module file
-            String swcWasmCode = new String(Files.readAllBytes(Paths.get("src/main/resources/node_modules/@swc/wasm-web/wasm.js")));
-
-            Source swcSource = Source.newBuilder("js", swcWasmCode, "wasm.js")
+            Source swcSource = Source.newBuilder("js",
+                            Paths.get("src/main/resources/node_modules/@swc/wasm-web/wasm.js").toUri().toURL())
                     .mimeType("application/javascript+module")
                     .build();
 
@@ -33,13 +31,6 @@ public class SwcWasmTranspiler {
             this.initSyncFunc = swcModule.getMember("initSync");
             this.transformSyncFunc = swcModule.getMember("transformSync");
 
-            if (initSyncFunc == null || initSyncFunc.isNull()) {
-                throw new RuntimeException("SWC initSync function is missing or null.");
-            }
-
-            if (transformSyncFunc == null || transformSyncFunc.isNull()) {
-                throw new RuntimeException("SWC transformSync function is missing or null.");
-            }
 
             // Load the WASM binary as a byte array
             byte[] wasmBytes = Files.readAllBytes(Paths.get("src/main/resources/node_modules/@swc/wasm-web/wasm_bg.wasm"));

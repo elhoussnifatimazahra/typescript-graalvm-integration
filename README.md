@@ -51,6 +51,18 @@ The project includes a benchmark suite that measures:
 
 -  Compilation time (TypeScript → JavaScript)
 
+Here is how to run it:
+```bash
+mvn package
+java \
+  -Dcompiler=<tsc|swc> \
+  -Dtrace=<true|false (defaults to false)> \
+  -Dwarmup=<number of warmup iterations (defaults to 10000)> \
+  --enable-native-access=org.graalvm.truffle \
+  --sun-misc-unsafe-memory-access=allow \
+  --module-path target/modules:target/typescript-integration-graaljs-1.0-SNAPSHOT.jar \
+  --module org.example/org.example.TypeScriptCompiler
+```
 
 ---
 
